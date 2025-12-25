@@ -134,14 +134,37 @@
     }
   }
 
+  function isFollowingTabActive(element) {
+    // Check if Following tab is already selected
+    if (element.getAttribute('aria-selected') === 'true') {
+      return true;
+    }
+    // Check for visual indicator (blue underline)
+    const hasActiveIndicator = element.querySelector('[style*="background-color: rgb(29, 155, 240)"]') ||
+                               element.querySelector('[style*="rgb(29, 155, 240)"]');
+    if (hasActiveIndicator) {
+      return true;
+    }
+    // Check parent for aria-selected
+    let parent = element.parentElement;
+    for (let i = 0; i < 3 && parent; i++) {
+      if (parent.getAttribute('aria-selected') === 'true') {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
   function clickFollowingTab() {
     const followingTab = findFollowingTab();
 
     if (followingTab) {
       log('Found Following tab:', followingTab);
 
-      // Check if we're not already on the Following tab
-      const isActive = window.location.pathname === '/following';
+      // Check if Following tab is already active
+      const isActive = isFollowingTabActive(followingTab);
+      log('Is Following tab active:', isActive);
 
       if (!isActive && !switched) {
         switched = true;
@@ -248,4 +271,32 @@
     switched = false;
     setTimeout(init, 200);
   });
+
+  // Intercept clicks on Home link
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('a[href="/home"]');
+    if (link) {
+      log('Clicked Home link');
+      switched = false;
+      setTimeout(init, 300);
+    }
+  }, true);
+
+  // Also intercept pushState/replaceState for SPA navigation
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function(...args) {
+    originalPushState.apply(this, args);
+    log('pushState called');
+    switched = false;
+    setTimeout(init, 100);
+  };
+
+  history.replaceState = function(...args) {
+    originalReplaceState.apply(this, args);
+    log('replaceState called');
+    switched = false;
+    setTimeout(init, 100);
+  };
 })();
