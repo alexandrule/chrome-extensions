@@ -9,6 +9,10 @@ test.js
 package.json
 package-lock.json
 
+# Build artifacts
+*.zip
+screenshot.png
+
 # OS files
 .DS_Store
 Thumbs.db
