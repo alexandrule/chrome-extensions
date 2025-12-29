@@ -25,8 +25,57 @@ The extension handles X.com's React-based SPA with:
 
 Set `DEBUG = true` in content.js line 5 to enable console logging with `[X-Following]` prefix.
 
-## Installation
+## Installation (Development)
 
 1. Go to `chrome://extensions/`
 2. Enable Developer mode
 3. Click "Load unpacked" and select this directory
+
+## Testing
+
+### Run unit tests locally
+```bash
+npm install
+npm test
+```
+
+### Run tests in Docker
+```bash
+docker compose run --rm test
+```
+
+### Run E2E tests (requires headed browser)
+```bash
+npm run test:e2e
+```
+
+## Build for Chrome Web Store
+
+Creates a zip containing only the required extension files (manifest.json, content.js, icons/).
+
+### Local build
+```bash
+npm run build
+```
+
+### Docker build
+```bash
+docker compose run --rm build
+```
+
+Output: `dist/x-following-tab.zip`
+
+## Project Structure
+
+```
+├── manifest.json       # Extension manifest (publish)
+├── content.js          # Content script (publish)
+├── icons/              # Extension icons (publish)
+├── tests/
+│   ├── unit/           # Jest unit tests
+│   └── e2e/            # Playwright E2E tests
+├── scripts/
+│   └── build.js        # Build script for packaging
+├── Dockerfile          # Test/build container
+└── docker-compose.yml  # Docker services (test, build)
+```

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+browser-data/
+.git/
+.DS_Store
+*.md
+screenshot.png
