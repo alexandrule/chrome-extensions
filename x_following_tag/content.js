@@ -7,6 +7,18 @@
 
   let switched = false;
 
+  // Export core functions for testing
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      findFollowingTab: (...args) => findFollowingTab(...args),
+      simulateClick: (...args) => simulateClick(...args),
+      isFollowingTabActive: (...args) => isFollowingTabActive(...args),
+      shouldRun: (...args) => shouldRun(...args),
+      clickFollowingTab: (...args) => clickFollowingTab(...args),
+    };
+    return; // Don't auto-run in test environment
+  }
+
   function findFollowingTab() {
     // Debug: log all links on the page
     const allLinks = document.querySelectorAll('a');
