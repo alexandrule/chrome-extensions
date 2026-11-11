@@ -3,6 +3,14 @@
  * Tests the core DOM selection and click logic
  */
 
+const {
+  findFollowingTab,
+  simulateClick,
+  isFollowingTabActive,
+  shouldRun,
+  clickFollowingTab,
+} = require('../../content.js');
+
 describe('X Following Tab Auto-Switch', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -32,9 +40,9 @@ describe('X Following Tab Auto-Switch', () => {
 
     test('should find Following tab by href="/following"', () => {
       createMockTabs();
-      const link = document.querySelector('a[href="/following"]');
-      expect(link).not.toBeNull();
-      expect(link.textContent).toContain('Following');
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.getAttribute('href')).toBe('/following');
     });
 
     test('should find Following tab by exact text content', () => {
@@ -44,9 +52,9 @@ describe('X Following Tab Auto-Switch', () => {
           <a><span>Following</span></a>
         </nav>
       `;
-      const spans = document.querySelectorAll('span');
-      const followingSpan = Array.from(spans).find(s => s.textContent === 'Following');
-      expect(followingSpan).not.toBeNull();
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.textContent).toContain('Following');
     });
 
     test('should not match partial text like "Following you"', () => {
@@ -56,10 +64,110 @@ describe('X Following Tab Auto-Switch', () => {
           <a href="/following"><span>Following</span></a>
         </div>
       `;
-      // The extension looks for exact "Following" text
-      const spans = document.querySelectorAll('span');
-      const exactMatch = Array.from(spans).find(s => s.textContent === 'Following');
-      expect(exactMatch.textContent).toBe('Following');
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.getAttribute('href')).toBe('/following');
+    });
+
+    test('should return null when no Following tab exists', () => {
+      document.body.innerHTML = `<div><span>Nothing here</span></div>`;
+      const tab = findFollowingTab();
+      expect(tab).toBeNull();
+    });
+
+    test('should find tab via DOM traversal from "For you"', () => {
+      document.body.innerHTML = `
+        <div role="tablist">
+          <a role="tab"><span>For you</span></a>
+          <a role="tab"><span>Following</span></a>
+        </div>
+      `;
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.textContent).toContain('Following');
+    });
+
+    test('should find tab via Strategy 3 when text is not exact match', () => {
+      // Strategy 1 fails (no href="/following"), Strategy 2 fails (text != "Following")
+      // Strategy 3 finds via "For you" sibling in tab container
+      document.body.innerHTML = `
+        <div role="tablist">
+          <a><span>For you</span></a>
+          <a>Following (2)</a>
+        </div>
+      `;
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.textContent).toContain('Following');
+    });
+
+    test('should find tab via parent traversal fallback when no tablist or nav', () => {
+      // Strategy 3 fallback: parentElement.parentElement.parentElement
+      document.body.innerHTML = `
+        <div>
+          <div>
+            <div><span>For you</span></div>
+            <a>Following (2)</a>
+          </div>
+        </div>
+      `;
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.textContent).toContain('Following');
+    });
+
+    test('should find tab via Strategy 4 using getBoundingClientRect', () => {
+      // No href, no exact text match via link, no "For you" sibling — only a span
+      document.body.innerHTML = `
+        <div role="tab">
+          <span>Following</span>
+        </div>
+      `;
+      const span = document.querySelector('span');
+      span.getBoundingClientRect = () => ({ top: 50, left: 0, right: 100, bottom: 70, width: 100, height: 20 });
+
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.getAttribute('role')).toBe('tab');
+    });
+
+    test('should find presentation role parent in Strategy 4', () => {
+      document.body.innerHTML = `
+        <div role="presentation">
+          <div>
+            <span>Following</span>
+          </div>
+        </div>
+      `;
+      const span = document.querySelector('span');
+      span.getBoundingClientRect = () => ({ top: 50, left: 0, right: 100, bottom: 70, width: 100, height: 20 });
+
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+    });
+
+    test('should find div with tabindex in Strategy 4', () => {
+      document.body.innerHTML = `
+        <div tabindex="0">
+          <span>Following</span>
+        </div>
+      `;
+      const span = document.querySelector('span');
+      span.getBoundingClientRect = () => ({ top: 50, left: 0, right: 100, bottom: 70, width: 100, height: 20 });
+
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+    });
+
+    test('should skip Strategy 4 when span is not in top area', () => {
+      document.body.innerHTML = `
+        <div><span>Following</span></div>
+      `;
+      const span = document.querySelector('span');
+      span.getBoundingClientRect = () => ({ top: 500, left: 0, right: 100, bottom: 520, width: 100, height: 20 });
+
+      const tab = findFollowingTab();
+      expect(tab).toBeNull();
     });
   });
 
@@ -71,7 +179,7 @@ describe('X Following Tab Auto-Switch', () => {
         </a>
       `;
       const tab = document.querySelector('a[href="/following"]');
-      expect(tab.getAttribute('aria-selected')).toBe('true');
+      expect(isFollowingTabActive(tab)).toBe(true);
     });
 
     test('should detect inactive tab via aria-selected', () => {
@@ -81,35 +189,72 @@ describe('X Following Tab Auto-Switch', () => {
         </a>
       `;
       const tab = document.querySelector('a[href="/following"]');
-      expect(tab.getAttribute('aria-selected')).toBe('false');
+      expect(isFollowingTabActive(tab)).toBe(false);
+    });
+
+    test('should detect active state from parent aria-selected', () => {
+      document.body.innerHTML = `
+        <div aria-selected="true">
+          <a href="/following" role="tab">
+            <span>Following</span>
+          </a>
+        </div>
+      `;
+      const tab = document.querySelector('a[href="/following"]');
+      expect(isFollowingTabActive(tab)).toBe(true);
+    });
+
+    test('should detect active state via blue underline indicator', () => {
+      document.body.innerHTML = `
+        <a href="/following" role="tab">
+          <span>Following</span>
+          <div style="background-color: rgb(29, 155, 240);"></div>
+        </a>
+      `;
+      const tab = document.querySelector('a[href="/following"]');
+      expect(isFollowingTabActive(tab)).toBe(true);
+    });
+
+    test('should return false when no active indicators', () => {
+      document.body.innerHTML = `
+        <a href="/following" role="tab">
+          <span>Following</span>
+        </a>
+      `;
+      const tab = document.querySelector('a[href="/following"]');
+      expect(isFollowingTabActive(tab)).toBe(false);
     });
   });
 
   describe('shouldRun', () => {
+    afterEach(() => {
+      // Reset to default jsdom URL
+      window.history.pushState({}, '', '/');
+    });
+
     test('should run on /home path', () => {
-      delete window.location;
-      window.location = { pathname: '/home', href: 'https://x.com/home' };
-      expect(window.location.pathname).toBe('/home');
+      window.history.pushState({}, '', '/home');
+      expect(shouldRun()).toBe(true);
     });
 
     test('should run on root path', () => {
-      delete window.location;
-      window.location = { pathname: '/', href: 'https://x.com/' };
-      expect(window.location.pathname).toBe('/');
+      window.history.pushState({}, '', '/');
+      expect(shouldRun()).toBe(true);
     });
 
     test('should not run on profile pages', () => {
-      delete window.location;
-      window.location = { pathname: '/username', href: 'https://x.com/username' };
-      const shouldRun = ['/home', '/', ''].includes(window.location.pathname);
-      expect(shouldRun).toBe(false);
+      window.history.pushState({}, '', '/username');
+      expect(shouldRun()).toBe(false);
     });
 
     test('should not run on search page', () => {
-      delete window.location;
-      window.location = { pathname: '/search', href: 'https://x.com/search' };
-      const shouldRun = ['/home', '/', ''].includes(window.location.pathname);
-      expect(shouldRun).toBe(false);
+      window.history.pushState({}, '', '/search');
+      expect(shouldRun()).toBe(false);
+    });
+
+    test('should not run on explore page', () => {
+      window.history.pushState({}, '', '/explore');
+      expect(shouldRun()).toBe(false);
     });
   });
 
@@ -122,38 +267,81 @@ describe('X Following Tab Auto-Switch', () => {
         element.addEventListener(eventType, () => events.push(eventType));
       });
 
-      // Simulate what the extension does
-      ['mousedown', 'mouseup', 'click'].forEach(eventType => {
-        const event = new MouseEvent(eventType, {
-          view: window,
-          bubbles: true,
-          cancelable: true,
-          buttons: 1
-        });
-        element.dispatchEvent(event);
-      });
+      simulateClick(element);
 
-      expect(events).toEqual(['mousedown', 'mouseup', 'click']);
+      expect(events[0]).toBe('mousedown');
+      expect(events[1]).toBe('mouseup');
+      // click appears multiple times (dispatchEvent + native .click())
+      expect(events).toContain('click');
     });
 
     test('should create events with correct properties', () => {
       const element = document.createElement('a');
       let capturedEvent = null;
 
-      element.addEventListener('click', (e) => {
+      element.addEventListener('mousedown', (e) => {
         capturedEvent = e;
       });
 
-      const event = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true,
-        buttons: 1
-      });
-      element.dispatchEvent(event);
+      simulateClick(element);
 
       expect(capturedEvent.bubbles).toBe(true);
       expect(capturedEvent.cancelable).toBe(true);
+    });
+
+    test('should also click parent anchor element', () => {
+      document.body.innerHTML = `
+        <a href="/following" role="tab">
+          <div><span>Following</span></div>
+        </a>
+      `;
+      const span = document.querySelector('span');
+      const anchor = document.querySelector('a');
+      let parentClicked = false;
+      anchor.addEventListener('click', () => { parentClicked = true; });
+
+      simulateClick(span);
+
+      expect(parentClicked).toBe(true);
+    });
+  });
+
+  describe('clickFollowingTab', () => {
+    test('should click inactive Following tab and return true', () => {
+      document.body.innerHTML = `
+        <nav role="navigation">
+          <div role="tablist">
+            <a href="/foryou" role="tab" aria-selected="true">
+              <span>For you</span>
+            </a>
+            <a href="/following" role="tab" aria-selected="false">
+              <span>Following</span>
+            </a>
+          </div>
+        </nav>
+      `;
+      expect(clickFollowingTab()).toBe(true);
+    });
+
+    test('should return false when Following tab is already active', () => {
+      document.body.innerHTML = `
+        <nav role="navigation">
+          <div role="tablist">
+            <a href="/foryou" role="tab" aria-selected="false">
+              <span>For you</span>
+            </a>
+            <a href="/following" role="tab" aria-selected="true">
+              <span>Following</span>
+            </a>
+          </div>
+        </nav>
+      `;
+      expect(clickFollowingTab()).toBe(false);
+    });
+
+    test('should return false when no Following tab found', () => {
+      document.body.innerHTML = `<div>Empty page</div>`;
+      expect(clickFollowingTab()).toBe(false);
     });
   });
 
@@ -165,13 +353,9 @@ describe('X Following Tab Auto-Switch', () => {
           <a role="tab"><span>Following</span></a>
         </div>
       `;
-      const forYouSpan = Array.from(document.querySelectorAll('span'))
-        .find(s => s.textContent === 'For you');
-      const tabContainer = forYouSpan.closest('div[role="tablist"]');
-
-      expect(tabContainer).not.toBeNull();
-      const links = tabContainer.querySelectorAll('a');
-      expect(links.length).toBe(2);
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.textContent).toContain('Following');
     });
 
     test('should find clickable parent with role="tab"', () => {
@@ -182,34 +366,30 @@ describe('X Following Tab Auto-Switch', () => {
           </div>
         </a>
       `;
-      const span = document.querySelector('span');
-      let el = span;
-      let foundTab = null;
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
+      expect(tab.getAttribute('href')).toBe('/following');
+    });
 
-      for (let i = 0; i < 10 && el; i++) {
-        if (el.getAttribute('role') === 'tab' || el.tagName === 'A') {
-          foundTab = el;
-          break;
-        }
-        el = el.parentElement;
-      }
-
-      expect(foundTab).not.toBeNull();
-      expect(foundTab.tagName).toBe('A');
-      expect(foundTab.getAttribute('role')).toBe('tab');
+    test('should find Following via nav container fallback', () => {
+      document.body.innerHTML = `
+        <nav>
+          <a><span>For you</span></a>
+          <a><span>Following</span></a>
+        </nav>
+      `;
+      const tab = findFollowingTab();
+      expect(tab).not.toBeNull();
     });
   });
 
   describe('Security checks', () => {
     test('should not execute any external scripts', () => {
-      // Verify no script injection
       const scripts = document.querySelectorAll('script[src]');
       expect(scripts.length).toBe(0);
     });
 
     test('should not modify innerHTML with user content', () => {
-      // The extension only reads from DOM, never writes innerHTML
-      // This test documents that behavior
       const originalInnerHTML = document.body.innerHTML;
       // Extension only uses: querySelector, textContent (read), getAttribute
       // Never: innerHTML =, insertAdjacentHTML, document.write
